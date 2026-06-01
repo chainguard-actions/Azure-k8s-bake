@@ -1,14 +1,14 @@
-# azure/k8s-bake
+# Azure/k8s-bake
 
 Use this action to bake manifest file to be used for deployments using helm, kustomize or kompose
 
-Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/azure/k8s-bake](https://github.com/azure/k8s-bake).
+Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/Azure/k8s-bake](https://github.com/Azure/k8s-bake).
 
 ## Versions
 
 | Version | Tag | Upstream commit |
 |---------|-----|-----------------|
-| v3.0.4 | [`v3.0.4`](https://github.com/chainguard-actions/azure-k8s-bake/tree/v3.0.4) | — |
+| v3.0.4 | [`v3.0.4`](https://github.com/chainguard-actions/Azure-k8s-bake/tree/v3.0.4) | — |
 
 ## Privacy
 
