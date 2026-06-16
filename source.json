@@ -1,6 +1,6 @@
 {
-  "owner": "Azure",
+  "owner": "azure",
   "repo": "k8s-bake",
   "version": "",
-  "url": "https://github.com/Azure/k8s-bake"
+  "url": "https://github.com/azure/k8s-bake"
 }
