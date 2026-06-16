@@ -1,6 +1,6 @@
 apiVersion: v2
 name: test-chart
-description: A minimal test Helm chart
+description: A test Helm chart for testing azure/k8s-bake
 type: application
 version: 0.1.0
-appVersion: "1.0.0"
+appVersion: "1.0"

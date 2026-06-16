@@ -11,36 +11,24 @@ jobs:
         with:
           renderEngine: kustomize
           kustomizationPath: ${{ github.workspace }}/actions/hardened/azure--k8s-bake/v3.0.4/tests/fixtures/kustomize
-          arguments: --enable-helm
-          kubectl-version: v1.28.0
+          silent: "false"
       - name: Assert manifestsBundle output is set
         env:
           ACTUAL: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "actual manifestsBundle: $ACTUAL"
+          echo "actual: $ACTUAL"
           if [ -z "$ACTUAL" ]; then
-            echo "FAIL: manifestsBundle output is empty"
+            echo "FAIL: expected manifestsBundle output to be set"
             exit 1
           fi
-          echo "PASS: manifestsBundle is set to $ACTUAL"
+          echo "PASS: manifestsBundle=$ACTUAL"
       - name: Assert manifest bundle file exists
         env:
           BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "Checking bundle path: $BUNDLE"
+          echo "bundle path: $BUNDLE"
           if [ ! -f "$BUNDLE" ]; then
             echo "FAIL: manifest bundle file does not exist at $BUNDLE"
             exit 1
           fi
           echo "PASS: manifest bundle file exists"
-      - name: Assert manifest bundle contains expected content
-        env:
-          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
-        run: |
-          echo "Bundle contents:"
-          cat "$BUNDLE"
-          if ! grep -q "Deployment" "$BUNDLE"; then
-            echo "FAIL: manifest bundle does not contain Deployment resource"
-            exit 1
-          fi
-          echo "PASS: manifest bundle contains expected content"

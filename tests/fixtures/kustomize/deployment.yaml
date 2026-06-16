@@ -2,19 +2,20 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: test-deployment
-  namespace: default
+  labels:
+    app: test
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: test-app
+      app: test
   template:
     metadata:
       labels:
-        app: test-app
+        app: test
     spec:
       containers:
-        - name: test-app
+        - name: test
           image: nginx:latest
           ports:
             - containerPort: 80
