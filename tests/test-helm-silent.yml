@@ -1,0 +1,61 @@
+name: Test helm render engine with silent mode
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      RUNNER_TEMP: /tmp/runner-temp
+      RUNNER_TOOL_CACHE: /tmp/runner-tool-cache
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare runner directories
+        run: |
+          mkdir -p /tmp/runner-temp
+          mkdir -p /tmp/runner-tool-cache
+
+      - id: bake
+        uses: .
+        with:
+          renderEngine: helm
+          helmChart: ${{ github.workspace }}/testResources/Helm/HelmCharts
+          releaseName: my-release
+          namespace: default
+          overrideFiles: ${{ github.workspace }}/testResources/Helm/values.yaml
+          helm-version: 'v3.17.3'
+          silent: 'true'
+
+      - name: Assert manifestsBundle output is set
+        env:
+          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+        run: |
+          echo "manifestsBundle: $MANIFESTS_BUNDLE"
+          if [ -z "$MANIFESTS_BUNDLE" ]; then
+            echo "FAIL: manifestsBundle output is empty"
+            exit 1
+          fi
+          echo "PASS: manifestsBundle is set to $MANIFESTS_BUNDLE"
+
+      - name: Assert manifest bundle file exists
+        env:
+          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+        run: |
+          echo "Checking manifest bundle at: $MANIFESTS_BUNDLE"
+          if [ ! -f "$MANIFESTS_BUNDLE" ]; then
+            echo "FAIL: manifest bundle file does not exist at $MANIFESTS_BUNDLE"
+            exit 1
+          fi
+          echo "PASS: manifest bundle file exists"
+
+      - name: Assert manifest bundle contains Deployment
+        env:
+          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+        run: |
+          echo "Contents of manifest bundle:"
+          cat "$MANIFESTS_BUNDLE"
+          if ! grep -q "kind: Deployment" "$MANIFESTS_BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain a Deployment resource"
+            exit 1
+          fi
+          echo "PASS: manifest bundle contains Deployment"
