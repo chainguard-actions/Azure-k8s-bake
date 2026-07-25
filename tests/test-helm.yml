@@ -2,59 +2,73 @@ name: Test helm render engine
 on:
   workflow_dispatch:
 jobs:
-  test:
+  test-helm:
     runs-on: ubuntu-latest
     env:
       RUNNER_TEMP: /tmp/runner-temp
-      RUNNER_TOOL_CACHE: /tmp/runner-tool-cache
+      RUNNER_TOOL_CACHE: /tmp/tool-cache
+      AGENT_TOOLSDIRECTORY: /tmp/tool-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Prepare runner directories
+      - name: Prepare directories and copy helm chart to writable location
         run: |
           mkdir -p /tmp/runner-temp
-          mkdir -p /tmp/runner-tool-cache
+          mkdir -p /tmp/tool-cache
+          # Copy helm chart to a writable temp location so helm dependency update can write to it
+          cp -r "$GITHUB_WORKSPACE/tests/fixtures/helm-chart" /tmp/helm-chart
+          chmod -R 755 /tmp/helm-chart
 
       - id: bake
         uses: .
         with:
           renderEngine: helm
-          helmChart: ${{ github.workspace }}/testResources/Helm/HelmCharts
-          releaseName: my-release
-          namespace: default
-          overrideFiles: ${{ github.workspace }}/testResources/Helm/values.yaml
-          helm-version: 'v3.17.3'
+          helmChart: /tmp/helm-chart
+          overrideFiles: ${{ github.workspace }}/tests/fixtures/helm-chart/values.yaml
+          releaseName: test-release
+          namespace: test-namespace
+          helm-version: 'v3.16.4'
 
       - name: Assert manifestsBundle output is set
         env:
-          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "manifestsBundle: $MANIFESTS_BUNDLE"
-          if [ -z "$MANIFESTS_BUNDLE" ]; then
+          echo "manifestsBundle: $BUNDLE"
+          if [ -z "$BUNDLE" ]; then
             echo "FAIL: manifestsBundle output is empty"
             exit 1
           fi
-          echo "PASS: manifestsBundle is set to $MANIFESTS_BUNDLE"
+          echo "PASS: manifestsBundle is set to $BUNDLE"
 
       - name: Assert manifest bundle file exists
         env:
-          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "Checking manifest bundle at: $MANIFESTS_BUNDLE"
-          if [ ! -f "$MANIFESTS_BUNDLE" ]; then
-            echo "FAIL: manifest bundle file does not exist at $MANIFESTS_BUNDLE"
+          echo "Checking bundle file: $BUNDLE"
+          if [ ! -f "$BUNDLE" ]; then
+            echo "FAIL: manifest bundle file does not exist at $BUNDLE"
             exit 1
           fi
           echo "PASS: manifest bundle file exists"
 
       - name: Assert manifest bundle contains Deployment
         env:
-          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "Contents of manifest bundle:"
-          cat "$MANIFESTS_BUNDLE"
-          if ! grep -q "kind: Deployment" "$MANIFESTS_BUNDLE"; then
-            echo "FAIL: manifest bundle does not contain a Deployment resource"
+          echo "Checking bundle content..."
+          cat "$BUNDLE"
+          if ! grep -q "kind: Deployment" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain a Deployment"
             exit 1
           fi
           echo "PASS: manifest bundle contains Deployment"
+
+      - name: Assert manifest bundle contains release name
+        env:
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+        run: |
+          if ! grep -q "test-release" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain release name 'test-release'"
+            exit 1
+          fi
+          echo "PASS: manifest bundle contains release name"

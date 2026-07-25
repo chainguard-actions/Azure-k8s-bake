@@ -2,71 +2,75 @@ name: Test helm render engine with overrides
 on:
   workflow_dispatch:
 jobs:
-  test:
+  test-helm-overrides:
     runs-on: ubuntu-latest
     env:
       RUNNER_TEMP: /tmp/runner-temp
-      RUNNER_TOOL_CACHE: /tmp/runner-tool-cache
+      RUNNER_TOOL_CACHE: /tmp/tool-cache
+      AGENT_TOOLSDIRECTORY: /tmp/tool-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Prepare runner directories
+      - name: Prepare directories and copy helm chart to writable location
         run: |
           mkdir -p /tmp/runner-temp
-          mkdir -p /tmp/runner-tool-cache
+          mkdir -p /tmp/tool-cache
+          # Copy helm chart to a writable temp location so helm dependency update can write to it
+          cp -r "$GITHUB_WORKSPACE/tests/fixtures/helm-chart" /tmp/helm-chart-overrides
+          chmod -R 755 /tmp/helm-chart-overrides
 
       - id: bake
         uses: .
         with:
           renderEngine: helm
-          helmChart: ${{ github.workspace }}/testResources/Helm/HelmCharts
-          releaseName: custom-release
-          namespace: production
-          overrideFiles: ${{ github.workspace }}/testResources/Helm/values.yaml
+          helmChart: /tmp/helm-chart-overrides
+          releaseName: override-release
+          namespace: override-ns
           overrides: |
-            image.tag:v2.0
-          helm-version: 'v3.17.3'
+            title:My Custom Title
+            serviceType:NodePort
+          helm-version: 'v3.16.4'
 
       - name: Assert manifestsBundle output is set
         env:
-          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "manifestsBundle: $MANIFESTS_BUNDLE"
-          if [ -z "$MANIFESTS_BUNDLE" ]; then
+          echo "manifestsBundle: $BUNDLE"
+          if [ -z "$BUNDLE" ]; then
             echo "FAIL: manifestsBundle output is empty"
             exit 1
           fi
-          echo "PASS: manifestsBundle is set"
+          echo "PASS: manifestsBundle is set to $BUNDLE"
 
       - name: Assert manifest bundle file exists
         env:
-          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "Checking manifest bundle at: $MANIFESTS_BUNDLE"
-          if [ ! -f "$MANIFESTS_BUNDLE" ]; then
-            echo "FAIL: manifest bundle file does not exist at $MANIFESTS_BUNDLE"
+          echo "Checking bundle file: $BUNDLE"
+          if [ ! -f "$BUNDLE" ]; then
+            echo "FAIL: manifest bundle file does not exist at $BUNDLE"
             exit 1
           fi
           echo "PASS: manifest bundle file exists"
 
-      - name: Assert manifest bundle contains expected release name
+      - name: Assert manifest bundle contains override release name
         env:
-          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          echo "Contents of manifest bundle:"
-          cat "$MANIFESTS_BUNDLE"
-          if ! grep -q "custom-release" "$MANIFESTS_BUNDLE"; then
-            echo "FAIL: manifest bundle does not contain release name 'custom-release'"
+          echo "Checking bundle content..."
+          cat "$BUNDLE"
+          if ! grep -q "override-release" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain release name 'override-release'"
             exit 1
           fi
-          echo "PASS: manifest bundle contains expected release name"
+          echo "PASS: manifest bundle contains override release name"
 
-      - name: Assert manifest bundle contains Service resource
+      - name: Assert manifest bundle contains override namespace
         env:
-          MANIFESTS_BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
-          if ! grep -q "kind: Service" "$MANIFESTS_BUNDLE"; then
-            echo "FAIL: manifest bundle does not contain a Service resource"
+          if ! grep -q "override-ns" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain namespace 'override-ns'"
             exit 1
           fi
-          echo "PASS: manifest bundle contains Service resource"
+          echo "PASS: manifest bundle contains override namespace"
