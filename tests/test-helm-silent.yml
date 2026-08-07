@@ -1,0 +1,57 @@
+name: Test helm render engine with silent input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: bake
+        uses: .
+        with:
+          renderEngine: helm
+          helmChart: ${{ github.workspace }}/tests/fixtures/Helm/HelmCharts
+          overrideFiles: ${{ github.workspace }}/tests/fixtures/Helm/values.yaml
+          releaseName: test-release-silent
+          namespace: test-namespace
+          helm-version: 'v3.17.0'
+          silent: 'true'
+
+      - name: Assert manifestsBundle output is set even when silent
+        env:
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+        run: |
+          echo "manifestsBundle: $BUNDLE"
+          if [ -z "$BUNDLE" ]; then
+            echo "FAIL: manifestsBundle output is empty when silent=true"
+            exit 1
+          fi
+          echo "PASS: manifestsBundle is set to '$BUNDLE' even with silent=true"
+
+      - name: Assert manifest bundle file exists when silent
+        env:
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+        run: |
+          echo "Checking bundle path: $BUNDLE"
+          if [ ! -f "$BUNDLE" ]; then
+            echo "FAIL: manifest bundle file does not exist at '$BUNDLE' when silent=true"
+            exit 1
+          fi
+          echo "PASS: manifest bundle file exists with silent=true"
+
+      - name: Assert manifest bundle contains expected Kubernetes resources when silent
+        env:
+          BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
+        run: |
+          echo "Bundle contents:"
+          cat "$BUNDLE"
+          if ! grep -q "kind: Deployment" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain a Deployment resource when silent=true"
+            exit 1
+          fi
+          if ! grep -q "kind: Service" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain a Service resource when silent=true"
+            exit 1
+          fi
+          echo "PASS: manifest bundle contains expected resources with silent=true"

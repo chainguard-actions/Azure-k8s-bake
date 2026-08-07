@@ -1,0 +1,311 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+import os from 'os'
+import fs from 'fs'
+import util from 'util'
+import {getExecOutput, ExecOptions} from '@actions/exec'
+import * as toolCache from '@actions/tool-cache'
+import * as core from '@actions/core'
+import * as semver from 'semver'
+
+export interface ExecResult {
+   stdout: string
+   stderr: string
+}
+
+export function getCurrentTime(): number {
+   return new Date().getTime()
+}
+
+export function isEqual(
+   str1: string | null | undefined,
+   str2: string | null | undefined
+) {
+   if (!str1) str1 = ''
+   if (!str2) str2 = ''
+   return str1.toLowerCase() === str2.toLowerCase()
+}
+
+export function getExecutableExtension(): string {
+   if (os.type().match(/^Win/)) {
+      return '.exe'
+   }
+   return ''
+}
+
+export async function execCommand(
+   toolPath: string,
+   args: string[],
+   options: ExecOptions = {} as ExecOptions
+): Promise<ExecResult> {
+   const result = await getExecOutput(toolPath, args, options)
+   if (result.exitCode != 0) {
+      if (!!result.stderr) {
+         throw Error(result.stderr)
+      } else {
+         throw Error(
+            util.format(
+               '%s exited with result code %s',
+               toolPath,
+               result.exitCode
+            )
+         )
+      }
+   }
+
+   return {
+      stdout: result.stdout,
+      stderr: result.stderr
+   }
+}
+
+export async function setCachedToolPath(toolName: string, version: string) {
+   let cachedToolpath = ''
+   let downloadPath = ''
+   const downloadUrl = getDownloadUrl(toolName, version)
+
+   try {
+      downloadPath = await toolCache.downloadTool(downloadUrl)
+   } catch (exeption) {
+      throw new Error(
+         `Failed to download the ${toolName} from ${downloadUrl}.  Error: ${exeption}`
+      )
+   }
+
+   if (toolName == 'helm') {
+      fs.chmodSync(downloadPath, '755')
+      const unzipedHelmPath = await toolCache.extractZip(downloadPath)
+      cachedToolpath = await toolCache.cacheDir(
+         unzipedHelmPath,
+         toolName,
+         version
+      )
+   } else {
+      cachedToolpath = await toolCache.cacheFile(
+         downloadPath,
+         toolName + getExecutableExtension(),
+         toolName,
+         version
+      )
+   }
+
+   return cachedToolpath
+}
+
+export function getDownloadUrl(toolName: string, version: string): string {
+   const system = os.type()
+   const systemAndArch = system == 'Linux' ? `${system}_${os.arch()}` : system
+
+   if (
+      !downloadLinks[systemAndArch] ||
+      !downloadLinks[systemAndArch][toolName]
+   ) {
+      throw Error('Unknown OS or render engine type')
+   }
+
+   return util.format(downloadLinks[systemAndArch][toolName], version)
+}
+
+export async function getStableVerison(toolName: string) {
+   if (!stableVersionUrls[toolName]) {
+      throw Error('Unable to download. Unknown tool name')
+   }
+
+   return toolCache.downloadTool(stableVersionUrls[toolName]).then(
+      (downloadPath) => {
+         let response = fs.readFileSync(downloadPath, 'utf8').toString().trim()
+         if (toolName == 'helm') {
+            const versionTag = JSON.parse(response)
+            return versionTag.tag_name
+               ? versionTag.tag_name
+               : defaultStableHelmVersion
+         } else {
+            return response ? response : defaultStableKubectlVersion
+         }
+      },
+      (err) => {
+         core.debug(err)
+         core.warning(
+            util.format(
+               'Failed to read latest %s version from URL %s. Using default stable version %s',
+               toolName,
+               stableVersionUrls[toolName],
+               toolName == 'helm'
+                  ? defaultStableHelmVersion
+                  : defaultStableKubectlVersion
+            )
+         )
+         return toolName == 'helm'
+            ? defaultStableHelmVersion
+            : defaultStableKubectlVersion
+      }
+   )
+}
+
+const defaultStableHelmVersion = 'v3.19.3'
+const defaultStableKubectlVersion = 'v1.34.3'
+
+const stableVersionUrls: Record<string, string> = {
+   kubectl: 'https://dl.k8s.io/release/stable.txt',
+   helm: 'https://api.github.com/repos/helm/helm/releases/latest'
+}
+
+const downloadLinks: Record<string, Record<string, string>> = {
+   Linux_x64: {
+      helm: 'https://get.helm.sh/helm-%s-linux-amd64.zip',
+      kompose:
+         'https://github.com/kubernetes/kompose/releases/download/%s/kompose-linux-amd64',
+      kubectl: 'https://dl.k8s.io/%s/bin/linux/amd64/kubectl'
+   },
+   Linux_arm64: {
+      helm: 'https://get.helm.sh/helm-%s-linux-arm64.zip',
+      kompose:
+         'https://github.com/kubernetes/kompose/releases/download/%s/kompose-linux-arm64',
+      kubectl: 'https://dl.k8s.io/%s/bin/linux/arm64/kubectl'
+   },
+   Darwin: {
+      helm: 'https://get.helm.sh/helm-%s-darwin-amd64.zip',
+      kompose:
+         'https://github.com/kubernetes/kompose/releases/download/%s/kompose-darwin-amd64',
+      kubectl: 'https://dl.k8s.io/%s/bin/darwin/amd64/kubectl'
+   },
+   Windows_NT: {
+      helm: 'https://get.helm.sh/helm-%s-windows-amd64.zip',
+      kompose:
+         'https://github.com/kubernetes/kompose/releases/download/%s/kompose-windows-amd64.exe',
+      kubectl: 'https://dl.k8s.io/%s/bin/windows/amd64/kubectl.exe'
+   }
+}
+
+export const LATEST = 'latest'
+export const MIN_KUBECTL_CLIENT_VERSION = '1.14'
+
+export {
+   BAKE_OUTPUT_DIRNAME,
+   BAKED_MANIFEST_PREFIX,
+   BAKED_MANIFEST_PATTERN,
+   CLEANUP_STATE_KEY
+} from './constants.js'
+
+const helmReleasesUrl = 'https://api.github.com/repos/helm/helm/releases'
+
+export interface HelmRelease {
+   tag_name: string
+   prerelease: boolean
+   draft: boolean
+}
+
+// Helper function to add random jitter delay to avoid rate-limiting
+async function sleepWithJitter(
+   baseMs: number,
+   jitterMs: number
+): Promise<void> {
+   const delay = baseMs + Math.random() * jitterMs
+   return new Promise((resolve) => setTimeout(resolve, delay))
+}
+
+export async function getHelmVersions(): Promise<string[]> {
+   const versions: string[] = []
+   let page = 1
+   const perPage = 100
+   const maxPages = 5 // Fetch up to 500 releases to cover helm's extensive release history
+
+   try {
+      for (let i = 0; i < maxPages; i++) {
+         // Add jitter delay for follow-up requests to avoid rate-limiting
+         if (i > 0) {
+            await sleepWithJitter(100, 200) // 100-300ms delay between requests
+         }
+
+         const url = `${helmReleasesUrl}?page=${page}&per_page=${perPage}`
+         const downloadPath = await toolCache.downloadTool(url)
+         const response = fs
+            .readFileSync(downloadPath, 'utf8')
+            .toString()
+            .trim()
+         const releases: HelmRelease[] = JSON.parse(response)
+
+         if (releases.length === 0) {
+            break
+         }
+
+         for (const release of releases) {
+            // Skip prereleases and drafts
+            if (!release.prerelease && !release.draft && release.tag_name) {
+               versions.push(release.tag_name)
+            }
+         }
+
+         if (releases.length < perPage) {
+            break
+         }
+         page++
+      }
+   } catch (err) {
+      core.debug(`Failed to fetch helm versions: ${err}`)
+      core.warning(
+         'Failed to fetch helm versions from GitHub API. Falling back to default behavior.'
+      )
+   }
+
+   return versions
+}
+
+export function isSemverRange(version: string): boolean {
+   // Check if the version contains semver range characters
+   return /[\^~*x]|>=|<=|>|<|\s-\s|\|\|/.test(version)
+}
+
+export async function resolveHelmVersion(
+   versionInput: string
+): Promise<string> {
+   // If it's "latest", return as-is to be handled by getStableVersion
+   if (isEqual(versionInput, LATEST)) {
+      return versionInput
+   }
+
+   // If it looks like a semver range, resolve it
+   if (isSemverRange(versionInput)) {
+      core.debug(`Resolving semver range: ${versionInput}`)
+      const versions = await getHelmVersions()
+
+      if (versions.length === 0) {
+         const versionMatch = versionInput.match(/(\d+\.\d+\.\d+)/)
+         if (versionMatch) {
+            const fallbackVersion = `v${versionMatch[1]}`
+            core.warning(
+               `Unable to fetch helm versions from GitHub API. Using fallback version ${fallbackVersion} based on range "${versionInput}"`
+            )
+            return fallbackVersion
+         }
+         throw new Error(
+            `Unable to resolve helm version range "${versionInput}": Could not fetch available versions and could not extract version from range`
+         )
+      }
+
+      // Clean version tags (remove 'v' prefix for semver comparison)
+      const cleanVersions = versions
+         .map((v) => v.replace(/^v/, ''))
+         .filter((v) => semver.valid(v))
+
+      // Find the maximum version that satisfies the range
+      const maxVersion = semver.maxSatisfying(cleanVersions, versionInput)
+
+      if (!maxVersion) {
+         throw new Error(
+            `Unable to find a helm version that satisfies "${versionInput}". Available versions: ${versions.slice(0, 10).join(', ')}...`
+         )
+      }
+
+      // Add back the 'v' prefix for the original tag name
+      const matchedTag = `v${maxVersion}`
+      core.info(
+         `Resolved helm version range "${versionInput}" to "${matchedTag}"`
+      )
+      return matchedTag
+   }
+
+   // Otherwise, return the version as-is (exact version like v3.2.1)
+   return versionInput
+}
