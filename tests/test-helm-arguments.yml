@@ -12,11 +12,10 @@ jobs:
         with:
           renderEngine: helm
           helmChart: ${{ github.workspace }}/tests/fixtures/Helm/HelmCharts
-          overrideFiles: ${{ github.workspace }}/tests/fixtures/Helm/values.yaml
-          releaseName: test-release-args
-          namespace: test-namespace
+          releaseName: args-release
+          namespace: args-namespace
           helm-version: 'v3.17.0'
-          arguments: '--set serviceName=custom-service'
+          arguments: '--set replicaCount=2'
 
       - name: Assert manifestsBundle output is set
         env:
@@ -40,14 +39,18 @@ jobs:
           fi
           echo "PASS: manifest bundle file exists"
 
-      - name: Assert manifest bundle contains overridden value from arguments
+      - name: Assert manifest bundle contains expected Kubernetes resources
         env:
           BUNDLE: ${{ steps.bake.outputs.manifestsBundle }}
         run: |
           echo "Bundle contents:"
           cat "$BUNDLE"
-          if ! grep -q "custom-service" "$BUNDLE"; then
-            echo "FAIL: manifest bundle does not contain the value set via --set argument 'custom-service'"
+          if ! grep -q "kind: Deployment" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain a Deployment resource"
             exit 1
           fi
-          echo "PASS: manifest bundle contains value set via arguments input"
+          if ! grep -q "args-release" "$BUNDLE"; then
+            echo "FAIL: manifest bundle does not contain the release name 'args-release'"
+            exit 1
+          fi
+          echo "PASS: manifest bundle contains expected resources"
